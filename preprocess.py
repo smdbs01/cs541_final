@@ -1,5 +1,8 @@
+import argparse
 import json
 import os
+from functools import partial
+from multiprocessing import Pool, current_process
 
 import cv2
 import mediapipe as mp
@@ -7,8 +10,26 @@ import numpy as np
 from tqdm import tqdm
 
 mp_holistic = mp.solutions.holistic
+_holistic_instances = {}
 
-LANDMARK_COUNTS = {"face": 468, "pose": 33, "left_hand": 21, "right_hand": 21}
+os.environ["GLOG_minloglevel"] = "2"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+cv2.setNumThreads(0)
+
+
+def init_worker():
+    pid = current_process().pid
+    _holistic_instances[pid] = mp_holistic.Holistic(
+        static_image_mode=False,
+        model_complexity=2,
+        enable_segmentation=False,
+        refine_face_landmarks=True,
+    )
+    print(f"Worker {pid} initialized.")
+
+
+def get_holistic():
+    return _holistic_instances[current_process().pid]
 
 
 def process_single_frame(frame, holistic):
@@ -27,10 +48,7 @@ def process_single_frame(frame, holistic):
             return arr
         return np.zeros((fallback_count, 3), dtype=np.float32)
 
-    frame_data["face"] = process_landmarks(
-        results.face_landmarks,
-        fallback_count=468,
-    )
+    frame_data["face"] = process_landmarks(results.face_landmarks, fallback_count=478)
 
     frame_data["pose"] = process_landmarks(results.pose_landmarks, fallback_count=33)
 
@@ -45,77 +63,90 @@ def process_single_frame(frame, holistic):
     return frame_data
 
 
-def process_video(video_path, holistic):
-    cap = cv2.VideoCapture(video_path)
-    frames = []
+def process_video(video_id, config):
+    video_path = os.path.join(config["video_dir"], f"{video_id}.mp4")
+    output_path = os.path.join(config["output_dir"], f"{video_id}.npz")
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(process_single_frame(frame, holistic))
+    try:
+        if config["skip_existing"] and os.path.exists(output_path):
+            return {"video_id": video_id, "status": "skipped"}
 
-    cap.release()
+        holistic = get_holistic()
+        cap = cv2.VideoCapture(video_path)
+        frames = []
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(process_single_frame(frame, holistic))
 
-    video_data = {
-        "face": np.array([f["face"] for f in frames]),
-        "pose": np.array([f["pose"] for f in frames]),
-        "left_hand": np.array([f["left_hand"] for f in frames]),
-        "right_hand": np.array([f["right_hand"] for f in frames]),
-    }
+        video_data = {
+            "face": np.array([f["face"] for f in frames]),
+            "pose": np.array([f["pose"] for f in frames]),
+            "left_hand": np.array([f["left_hand"] for f in frames]),
+            "right_hand": np.array([f["right_hand"] for f in frames]),
+        }
 
-    return video_data
+        np.savez_compressed(output_path, **video_data)
+        return {"video_id": video_id, "status": "success"}
+    except Exception as e:
+        return {
+            "video_id": video_id,
+            "status": "error",
+            "message": str(e),
+        }
+    finally:
+        if "cap" in locals():
+            cap.release()
 
 
 def main():
-    BASE_DIR = "data/raw/wlasl-complete"
-    if not os.path.exists(BASE_DIR):
-        raise FileNotFoundError(f"Directory {BASE_DIR} does not exist.")
-
-    SPLIT_FILE_PATH = os.path.join(BASE_DIR, "nslt_2000.json")
-    VIDEO_DIR = os.path.join(BASE_DIR, "videos")
-    OUTPUT_DIR = "data/processed/landmarks"
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    with open(SPLIT_FILE_PATH) as f:
-        split_data = json.load(f)
-
-    video_ids = list(split_data.keys())
-
-    holistic = mp_holistic.Holistic(
-        static_image_mode=False,
-        model_complexity=2,
-        enable_segmentation=False,
-        refine_face_landmarks=True,
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--video_path",
+        type=str,
+        default="data/raw/wlasl-complete/videos",
     )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        default="data/processed/landmarks",
+    )
+    parser.add_argument(
+        "--split_file",
+        type=str,
+        default="data/raw/wlasl-complete/nslt_2000.json",
+    )
+    parser.add_argument(
+        "-n",
+        "--num_workers",
+        type=int,
+        default=8,
+    )
+    parser.add_argument(
+        "--skip_existing",
+        action="store_true",
+    )
+    args = parser.parse_args()
+    config = {
+        "video_dir": args.video_path,
+        "output_dir": args.output_path,
+        "skip_existing": args.skip_existing,
+    }
 
-    for vid in tqdm(video_ids, desc="Processing videos"):
-        video_path = os.path.join(VIDEO_DIR, f"{vid}.mp4")
-        if not os.path.exists(video_path):
-            print(f"Video {video_path} does not exist. Skipping.")
-            continue
+    with open(args.split_file) as f:
+        video_ids = list(json.load(f).keys())
 
-        try:
-            data = process_video(video_path, holistic)
-            output_path = os.path.join(OUTPUT_DIR, f"{vid}.npz")
-            np.savez(output_path, **data)
-        except Exception as e:
-            print(f"Error processing video {video_path}: {e}")
-            continue
+    with Pool(args.num_workers, initializer=init_worker, initargs=()) as pool:
+        worker = partial(process_video, config=config)
 
-    holistic.close()
-    print("Processing complete.")
-
-    # test
-    files = os.listdir(OUTPUT_DIR)
-    for file in files:
-        data = np.load(os.path.join(OUTPUT_DIR, file), allow_pickle=True)
-        print(data.keys())
-        for k, v in data.items():
-            print(k, v.shape)
-        break
-    print(len(files))
+        results = []
+        with tqdm(total=len(video_ids), desc="Processing videos") as pbar:
+            for result in pool.imap_unordered(worker, video_ids):
+                results.append(result)
+                pbar.update(1)
+                if result["status"] == "error":
+                    pbar.write(f"Error {result['video_id']}: {result['message'][:50]}")
 
 
 if __name__ == "__main__":
