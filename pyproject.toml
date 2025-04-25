@@ -4,4 +4,10 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["kagglehub>=0.3.11"]
+dependencies = [
+    "kagglehub>=0.3.11",
+    "opencv-python>=4.11.0.86",
+    "scikit-learn>=1.6.1",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+]
