@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import torch
 import torch.utils.data as data_utl
+from sklearn.preprocessing import LabelEncoder
 
 
 def video_to_tensor(pic):
@@ -169,16 +170,26 @@ class NSLT(data_utl.Dataset):
     def __init__(
         self, split_file: str, split: list[str], root: str, mode: str, transforms=None
     ):
-        self.num_classes = get_num_class(split_file)
+        self.label_encoder = LabelEncoder()
+        self.classes = self._get_classes(split_file)
+        self.label_encoder.fit(self.classes)
 
-        self.data = make_dataset(
-            split_file, split, root, mode, num_classes=self.num_classes
-        )
+        self.num_classes = len(self.classes)
+        self.data = self._make_dataset(split_file, split, root, mode)
         self.split_file = split_file
         self.transforms = transforms
         self.mode = mode
         self.root = root
         self.vid_root = os.path.join(root, "videos")
+
+    def _get_classes(self, split_file):
+        """获取数据集中所有唯一类别名"""
+        with open(split_file, "r") as f:
+            content = json.load(f)
+        classes = set()
+        for vid in content.values():
+            classes.add(vid["action"][0])
+        return sorted(classes)
 
     def __getitem__(self, index):
         """
@@ -188,7 +199,7 @@ class NSLT(data_utl.Dataset):
         Returns:
             tuple: (image, target) where target is class_index of the target class.
         """
-        vid, label, src, start_frame, nf = self.data[index]
+        vid, class_id, src, start_frame, nf = self.data[index]
 
         total_frames = 64
 
@@ -196,21 +207,56 @@ class NSLT(data_utl.Dataset):
             start_f = random.randint(0, nf - total_frames - 1) + start_frame
         except ValueError:
             start_f = start_frame
-
         imgs = load_rgb_frames_from_video(self.vid_root, vid, start_f, total_frames)
 
-        imgs, label = self.pad(imgs, label, total_frames)
+        imgs, label = self.pad(imgs, class_id, total_frames)
 
         if self.transforms is not None:
             imgs = self.transforms(imgs)
 
-        ret_lab = torch.from_numpy(label)
         ret_img = video_to_tensor(imgs)
-
+        ret_lab = torch.tensor(label, dtype=torch.long)
         return ret_img, ret_lab, vid
 
     def __len__(self):
         return len(self.data)
+
+    def _make_dataset(self, split_file, split, root, mode):
+        dataset = []
+        with open(split_file, "r") as f:
+            data = json.load(f)
+
+        for vid in data.keys():
+            if data[vid]["subset"] not in split:
+                continue
+
+            # 获取类别并编码
+            class_name = data[vid]["action"][0]
+            class_id = self.label_encoder.transform([class_name])[0]  # type: ignore # 转换为整数
+
+            # 移除原 one-hot 标签生成逻辑
+            # 新增视频元组格式: (vid, class_id, src, start_frame, total_frames)
+            if len(vid) == 5:
+                dataset.append(
+                    (
+                        vid,
+                        class_id,
+                        0,  # src
+                        0,  # start_frame
+                        data[vid]["action"][2] - data[vid]["action"][1],  # total_frames
+                    )
+                )
+            elif len(vid) == 6:
+                dataset.append(
+                    (
+                        vid,
+                        class_id,
+                        0,  # src
+                        data[vid]["action"][1],  # start_frame
+                        data[vid]["action"][2] - data[vid]["action"][1],  # total_frames
+                    )
+                )
+        return dataset
 
     def pad(self, imgs, label, total_frames):
         if imgs.shape[0] < total_frames:
@@ -232,9 +278,6 @@ class NSLT(data_utl.Dataset):
                     padded_imgs = np.concatenate([imgs, pad], axis=0)
         else:
             padded_imgs = imgs
-
-        label = label[:, 0]
-        label = np.tile(label, (total_frames, 1)).transpose((1, 0))
 
         return padded_imgs, label  # type: ignore
 

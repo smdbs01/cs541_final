@@ -35,7 +35,6 @@ def train_vision(configs: TrainConfig, save_model: str, weights: Optional[str] =
         ]
     )
     test_transforms = transforms.Compose([videotransforms.CenterCrop(224)])
-
     dataset = VisionDataset(
         train_split_file, ["train"], root_dir, "rgb", train_transforms
     )
@@ -43,7 +42,6 @@ def train_vision(configs: TrainConfig, save_model: str, weights: Optional[str] =
         dataset,
         batch_size=configs.batch_size,
         shuffle=True,
-        num_workers=0,
         pin_memory=True,
     )
 
@@ -54,7 +52,6 @@ def train_vision(configs: TrainConfig, save_model: str, weights: Optional[str] =
         val_dataset,
         batch_size=configs.batch_size,
         shuffle=True,
-        num_workers=2,
         pin_memory=False,
     )
 
@@ -65,7 +62,7 @@ def train_vision(configs: TrainConfig, save_model: str, weights: Optional[str] =
     for inputs, labels, vid_id in dataloaders["train"]:
         print(f"Batch inputs shape: {inputs.shape}")
         print(f"Batch labels shape: {labels.shape}")
-        print(f"Video ID: {vid_id}")
+        # print(f"Video ID: {vid_id}")
         break
 
 
@@ -85,7 +82,6 @@ def train_pose(configs: TrainConfig, save_model: str, weights: Optional[str] = N
         dataset,
         batch_size=configs.batch_size,
         shuffle=True,
-        num_workers=0,
         pin_memory=True,
     )
 
@@ -102,15 +98,18 @@ def train_pose(configs: TrainConfig, save_model: str, weights: Optional[str] = N
         val_dataset,
         batch_size=configs.batch_size,
         shuffle=True,
-        num_workers=2,
         pin_memory=False,
     )
 
     dataloaders = {"train": dataloader, "val": val_dataloader}
     datasets = {"train": dataset, "val": val_dataset}
 
-    print(f"Number of training samples: {len(datasets['train'])}")
-    print(f"Number of validation samples: {len(datasets['val'])}")
+    # Get a batch of training data
+    for inputs, labels, vid_id in dataloaders["train"]:
+        print(f"Batch inputs shape: {inputs.shape}")
+        print(f"Batch labels shape: {labels.shape}")
+        # print(f"Video ID: {vid_id}")
+        break
 
 
 def run(
@@ -132,17 +131,21 @@ def run(
         raise ValueError("Mode must be either 'vision' or 'pose', got {}".format(mode))
 
     if mode == "vision":
+        print("Training vision model...")
         train_vision(
             configs=configs,
             save_model=save_model,
             weights=weights,
         )
-    else:
+    elif mode == "pose":
+        print("Training pose model...")
         train_pose(
             configs=configs,
             save_model=save_model,
             weights=weights,
         )
+    else:
+        raise ValueError("Mode must be either 'vision' or 'pose', got {}".format(mode))
 
 
 if __name__ == "__main__":
@@ -158,6 +161,8 @@ if __name__ == "__main__":
     configs = TrainConfig(config_file)
 
     save_models, weights = args.save_model, args.weights
+
+    set_seed(42)
 
     run(
         configs=configs,

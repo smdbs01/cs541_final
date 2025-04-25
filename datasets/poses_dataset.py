@@ -83,9 +83,9 @@ class PoseDataset(Dataset):
         npz_path = os.path.join(self.pose_root, f"{video_id}.npz")
         data = np.load(npz_path)
 
-        for part in ["pose", "left_hand", "right_hand"]:
-            if np.all(data[part][..., :2] == 0):
-                print(f"Warning: Zero-values in {part} for {video_id}")
+        # for part in ["pose", "left_hand", "right_hand"]:
+        #     if np.all(data[part][..., :2] == 0):
+        #         print(f"Warning: Zero-values in {part} for {video_id}")
 
         # Get each part's data and transpose dimensions (T, N, 3) -> (N, T, 3)
         face = data["face"].transpose(1, 0, 2)  # (478, T, 3)
