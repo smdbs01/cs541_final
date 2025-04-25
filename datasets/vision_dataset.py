@@ -32,12 +32,12 @@ def load_rgb_frames(image_dir, vid, start, num):
             )[:, :, [2, 1, 0]]
         except Exception:
             print(os.path.join(image_dir, vid, str(i).zfill(6) + ".jpg"))
-        w, h, c = img.shape
+        w, h, c = img.shape  # type: ignore
         if w < 226 or h < 226:
             d = 226.0 - min(w, h)
             sc = 1 + d / min(w, h)
-            img = cv2.resize(img, dsize=(0, 0), fx=sc, fy=sc)
-        img = (img / 255.0) * 2 - 1
+            img = cv2.resize(img, dsize=(0, 0), fx=sc, fy=sc)  # type: ignore
+        img = (img / 255.0) * 2 - 1  # type: ignore
         frames.append(img)
     return np.asarray(frames, dtype=np.float32)
 
@@ -105,12 +105,8 @@ def make_dataset(split_file, split, root, mode, num_classes):
     i = 0
     count_skipping = 0
     for vid in data.keys():
-        if split == "train":
-            if data[vid]["subset"] not in ["train", "val"]:
-                continue
-        else:
-            if data[vid]["subset"] != "test":
-                continue
+        if data[vid]["subset"] not in split:
+            continue
 
         # vid_root = root["word"]
         vid_root = os.path.join(root, "videos")
@@ -170,7 +166,9 @@ def get_num_class(split_file):
 
 
 class NSLT(data_utl.Dataset):
-    def __init__(self, split_file, split, root, mode, transforms=None):
+    def __init__(
+        self, split_file: str, split: list[str], root: str, mode: str, transforms=None
+    ):
         self.num_classes = get_num_class(split_file)
 
         self.data = make_dataset(
@@ -203,7 +201,8 @@ class NSLT(data_utl.Dataset):
 
         imgs, label = self.pad(imgs, label, total_frames)
 
-        imgs = self.transforms(imgs)
+        if self.transforms is not None:
+            imgs = self.transforms(imgs)
 
         ret_lab = torch.from_numpy(label)
         ret_img = video_to_tensor(imgs)
@@ -237,7 +236,7 @@ class NSLT(data_utl.Dataset):
         label = label[:, 0]
         label = np.tile(label, (total_frames, 1)).transpose((1, 0))
 
-        return padded_imgs, label
+        return padded_imgs, label  # type: ignore
 
     @staticmethod
     def pad_wrap(imgs, label, total_frames):
@@ -262,4 +261,4 @@ class NSLT(data_utl.Dataset):
         label = label[:, 0]
         label = np.tile(label, (total_frames, 1)).transpose((1, 0))
 
-        return padded_imgs, label
+        return padded_imgs, label  # type: ignore

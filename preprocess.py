@@ -9,7 +9,7 @@ import mediapipe as mp
 import numpy as np
 from tqdm import tqdm
 
-mp_holistic = mp.solutions.holistic
+mp_holistic = mp.solutions.holistic  # type: ignore # Legacy
 _holistic_instances = {}
 
 os.environ["GLOG_minloglevel"] = "2"
@@ -87,7 +87,7 @@ def process_video(video_id, config):
             "right_hand": np.array([f["right_hand"] for f in frames]),
         }
 
-        np.savez_compressed(output_path, **video_data)
+        np.savez_compressed(output_path, **video_data)  # type: ignore
         return {"video_id": video_id, "status": "success"}
     except Exception as e:
         return {
@@ -97,7 +97,7 @@ def process_video(video_id, config):
         }
     finally:
         if "cap" in locals():
-            cap.release()
+            cap.release()  # type: ignore
 
 
 def main():
