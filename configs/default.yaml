@@ -1,14 +1,14 @@
 data:
   root: "data/raw/wlasl-complete"
-  train_split: "nslt_2000.json"
+  train_split: "nslt_100.json"
   class_list: "data/raw/wlasl-complete/wlasl_class_list.txt"
 
   mode: "pose" # "vision" or "pose"
-  video_path: "data/raw/wlasl-complete/videos"
+  video_path: "data/processed/videos"
   pose_path: "data/processed/landmarks"
 
 
 train:
-  batch_size: 32
+  batch_size: 128
   n_samples: 50 # only for pose
   num_copies: 4 # only for pose

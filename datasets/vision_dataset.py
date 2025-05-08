@@ -98,74 +98,6 @@ def load_flow_frames(image_dir, vid, start, num):
     return np.asarray(frames, dtype=np.float32)
 
 
-def make_dataset(split_file, split, root, mode, num_classes):
-    dataset = []
-    with open(split_file, "r") as f:
-        data = json.load(f)
-
-    i = 0
-    count_skipping = 0
-    for vid in data.keys():
-        if data[vid]["subset"] not in split:
-            continue
-
-        # vid_root = root["word"]
-        vid_root = os.path.join(root, "videos")
-        src = 0
-
-        video_path = os.path.join(vid_root, vid + ".mp4")
-        if not os.path.exists(video_path):
-            continue
-
-        num_frames = int(cv2.VideoCapture(video_path).get(cv2.CAP_PROP_FRAME_COUNT))
-
-        if mode == "flow":
-            num_frames = num_frames // 2
-
-        if num_frames - 0 < 9:
-            print("Skip video ", vid)
-            count_skipping += 1
-            continue
-
-        label = np.zeros((num_classes, num_frames), np.float32)
-
-        for j in range(num_frames):
-            c_ = data[vid]["action"][0]
-            label[c_][j] = 1
-
-        if len(vid) == 5:
-            dataset.append(
-                (vid, label, src, 0, data[vid]["action"][2] - data[vid]["action"][1])
-            )
-        elif len(vid) == 6:  ## sign kws instances
-            dataset.append(
-                (
-                    vid,
-                    label,
-                    src,
-                    data[vid]["action"][1],
-                    data[vid]["action"][2] - data[vid]["action"][1],
-                )
-            )
-
-        i += 1
-    print("Skipped videos: ", count_skipping)
-    print(len(dataset))
-    return dataset
-
-
-def get_num_class(split_file):
-    classes = set()
-
-    content = json.load(open(split_file))
-
-    for vid in content.keys():
-        class_id = content[vid]["action"][0]
-        classes.add(class_id)
-
-    return len(classes)
-
-
 class NSLT(data_utl.Dataset):
     def __init__(
         self, split_file: str, split: list[str], root: str, mode: str, transforms=None
@@ -180,10 +112,9 @@ class NSLT(data_utl.Dataset):
         self.transforms = transforms
         self.mode = mode
         self.root = root
-        self.vid_root = os.path.join(root, "videos")
 
     def _get_classes(self, split_file):
-        """获取数据集中所有唯一类别名"""
+        """Get the list of classes from the split file."""
         with open(split_file, "r") as f:
             content = json.load(f)
         classes = set()
@@ -207,8 +138,10 @@ class NSLT(data_utl.Dataset):
             start_f = random.randint(0, nf - total_frames - 1) + start_frame
         except ValueError:
             start_f = start_frame
-        imgs = load_rgb_frames_from_video(self.vid_root, vid, start_f, total_frames)
-
+        # imgs = load_rgb_frames_from_video(self.vid_root, vid, start_f, total_frames)
+        with np.load(os.path.join(self.root, vid + ".npz"), allow_pickle=True) as data:
+            length = data["frames"].shape[0]
+            imgs = data["frames"][start_f : min(start_f + total_frames, length)]
         imgs, label = self.pad(imgs, class_id, total_frames)
 
         if self.transforms is not None:
@@ -230,12 +163,10 @@ class NSLT(data_utl.Dataset):
             if data[vid]["subset"] not in split:
                 continue
 
-            # 获取类别并编码
+            # Label
             class_name = data[vid]["action"][0]
             class_id = self.label_encoder.transform([class_name])[0]  # type: ignore # 转换为整数
 
-            # 移除原 one-hot 标签生成逻辑
-            # 新增视频元组格式: (vid, class_id, src, start_frame, total_frames)
             if len(vid) == 5:
                 dataset.append(
                     (

@@ -14,14 +14,20 @@ Make sure you have *uv* installed, if not, follow [the documentation](https://do
 uv run download_data.py
 ```
 
+# Preprocess Pose Data
+
+```bash
+uv run preprocess.py
+```
+
 # Train 
 
 ```bash
-# TODO
+uv run train.py 
 ```
 
 # Test
 
 ```bash
-# TODO
+uv run test.py
 ```
